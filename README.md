@@ -1,2 +1,2 @@
 # corroboros
-A timestamp service
+A timestamp service API.
