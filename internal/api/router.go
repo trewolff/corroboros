@@ -1,13 +1,14 @@
 package api
 
 import (
+	"database/sql"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
 
 // NewRouter builds and returns the gin engine. Do not call Run() here.
-func NewRouter( /* pass deps e.g. svc timestamp.Service */ ) *gin.Engine {
+func NewRouter(db *sql.DB) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger())
@@ -17,7 +18,14 @@ func NewRouter( /* pass deps e.g. svc timestamp.Service */ ) *gin.Engine {
 	})
 
 	// inject dependencies into handler via closure or method receiver
-	r.POST("/upload", uploadHandler( /* deps */ ))
+	var maxIntakeSize int64 = 100
+	// ...existing code...
+	handler := uploadHandler(db, maxIntakeSize) // http.HandlerFunc
+	r.POST("/upload", func(c *gin.Context) {
+		// adapt http.HandlerFunc to gin.HandlerFunc
+		handler(c.Writer, c.Request)
+	})
+	// ...existing code...
 
 	return r
 }

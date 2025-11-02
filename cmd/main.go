@@ -21,9 +21,7 @@ func main() {
 		log.Fatalf("failed to setup database: %v", err)
 	}
 
-	_ = db // use db to create services
-
-	r := api.NewRouter( /* svc */ )
+	r := api.NewRouter(db)
 
 	srv := &http.Server{
 		Addr:    ":" + getEnv("PORT", "8080"),
