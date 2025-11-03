@@ -16,12 +16,83 @@ type UploadHandler interface {
 	ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
+type DB interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
 type HandlerDependencies struct {
-	DB            *sql.DB
+	DB            DB
 	Logger        *slog.Logger
 	MaxIntakeSize int64
 }
 
+// UploadResult holds the result of a file upload operation
+type UploadResult struct {
+	Checksum string
+	Status   string
+	Code     int
+	Err      error
+}
+
+// UploadInput holds all extracted upload parameters
+type UploadInput struct {
+	File                io.ReadSeeker
+	OrigFilename        string
+	ContentType         string
+	FileSize            int64
+	UserID              string
+	SubmitterIP         string
+	SubmitterHostname   string
+	SourceIP            string
+	SourceHostname      string
+	OriginalStoragePath string
+	UploadID            string
+	MaxIntakeSize       int64
+}
+
+// uploadCoreLogic performs the core upload logic, returns UploadResult
+func uploadCoreLogic(db DB, input UploadInput) UploadResult {
+	if input.FileSize > input.MaxIntakeSize {
+		return UploadResult{"", "file too large", http.StatusRequestEntityTooLarge, nil}
+	}
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, input.File); err != nil {
+		return UploadResult{"", "read error", http.StatusInternalServerError, err}
+	}
+	checksum := hex.EncodeToString(hasher.Sum(nil))
+	if _, err := input.File.Seek(0, 0); err != nil {
+		return UploadResult{"", "internal error", http.StatusInternalServerError, err}
+	}
+	timestamp := time.Now()
+	datePath := timestamp.Format("2006/01/02")
+	storagePath := "/storage/" + datePath + "/" + checksum[:2] + "/" + checksum[2:4] + "/" + checksum
+	sqlResult, err := db.Exec(`
+	       INSERT INTO files (
+		       checksum, status, timestamp, original_filename, user_id, size, content_type, 
+		       storage_path, submitter_ip, submitter_hostname, source_ip, source_hostname,
+		       original_storage_path, upload_id
+	       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+	       ON CONFLICT (checksum) DO NOTHING
+       `, checksum, "stored", timestamp, input.OrigFilename, input.UserID, input.FileSize, input.ContentType,
+		storagePath, input.SubmitterIP, input.SubmitterHostname, input.SourceIP, input.SourceHostname,
+		input.OriginalStoragePath, input.UploadID)
+	if err != nil {
+		return UploadResult{"", "database error", http.StatusInternalServerError, err}
+	}
+	rowsAffected, err := sqlResult.RowsAffected()
+	if err != nil {
+		return UploadResult{"", "database error", http.StatusInternalServerError, err}
+	}
+	code := http.StatusCreated
+	status := "created"
+	if rowsAffected == 0 {
+		code = http.StatusOK
+		status = "exists"
+	}
+	return UploadResult{checksum, status, code, nil}
+}
+
+// uploadHandler is the HTTP handler, now thin and testable
 func (h *HandlerDependencies) uploadHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, h.MaxIntakeSize)
@@ -32,24 +103,17 @@ func (h *HandlerDependencies) uploadHandler() http.HandlerFunc {
 		}
 		defer f.Close()
 
-		// Get original filename and content type from the file header
 		origFilename := header.Filename
 		contentType := header.Header.Get("Content-Type")
 		if contentType == "" {
 			contentType = "application/octet-stream"
 		}
-
-		// Get file size
 		fileSize := header.Size
-
-		// Get user ID from auth context (you might want to customize this based on your auth system)
 		userID := r.Header.Get("X-User-ID")
 		if userID == "" {
 			http.Error(w, "missing user ID", http.StatusUnauthorized)
 			return
 		}
-
-		// Get submitter's IP address
 		submitterIP := r.Header.Get("X-Real-IP")
 		if submitterIP == "" {
 			submitterIP = r.Header.Get("X-Forwarded-For")
@@ -57,72 +121,32 @@ func (h *HandlerDependencies) uploadHandler() http.HandlerFunc {
 				submitterIP = r.RemoteAddr
 			}
 		}
-
-		// Get submitter's hostname
 		submitterHostname := r.Host
-
-		// Get source machine details from headers
 		sourceIP := r.Header.Get("X-Source-IP")
 		sourceHostname := r.Header.Get("X-Source-Hostname")
 		originalStoragePath := r.Header.Get("X-Original-Path")
-
-		// Get upload ID if this is part of a batch upload
 		uploadID := r.Header.Get("X-Upload-ID")
 
-		// Validate file size against max size
-		if fileSize > h.MaxIntakeSize {
-			http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
+		input := UploadInput{
+			File:                f,
+			OrigFilename:        origFilename,
+			ContentType:         contentType,
+			FileSize:            fileSize,
+			UserID:              userID,
+			SubmitterIP:         submitterIP,
+			SubmitterHostname:   submitterHostname,
+			SourceIP:            sourceIP,
+			SourceHostname:      sourceHostname,
+			OriginalStoragePath: originalStoragePath,
+			UploadID:            uploadID,
+			MaxIntakeSize:       h.MaxIntakeSize,
+		}
+		result := uploadCoreLogic(h.DB, input)
+		if result.Err != nil {
+			http.Error(w, result.Status, result.Code)
 			return
 		}
-
-		// Calculate checksum
-		hasher := sha256.New()
-		if _, err := io.Copy(hasher, f); err != nil {
-			http.Error(w, "read error", http.StatusInternalServerError)
-			return
-		}
-		checksum := hex.EncodeToString(hasher.Sum(nil))
-
-		// Seek back to beginning of file for potential future operations
-		if _, err := f.Seek(0, 0); err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-
-		// Generate storage path based on checksum and date for better organization
-		timestamp := time.Now()
-		datePath := timestamp.Format("2006/01/02")
-		storagePath := "/storage/" + datePath + "/" + checksum[:2] + "/" + checksum[2:4] + "/" + checksum
-
-		sqlResult, err := h.DB.Exec(`
-			INSERT INTO files (
-				checksum, status, timestamp, original_filename, user_id, size, content_type, 
-				storage_path, submitter_ip, submitter_hostname, source_ip, source_hostname,
-				original_storage_path, upload_id
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-			ON CONFLICT (checksum) DO NOTHING
-		`, checksum, "stored", timestamp, origFilename, userID, fileSize, contentType,
-			storagePath, submitterIP, submitterHostname, sourceIP, sourceHostname,
-			originalStoragePath, uploadID)
-
-		if err != nil {
-			http.Error(w, "database error", http.StatusInternalServerError)
-			return
-		}
-
-		rowsAffected, err := sqlResult.RowsAffected()
-		if err != nil {
-			http.Error(w, "database error", http.StatusInternalServerError)
-			return
-		}
-
-		if rowsAffected == 0 {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(checksum))
-			return
-		}
-
-		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(checksum))
+		w.WriteHeader(result.Code)
+		w.Write([]byte(result.Checksum))
 	}
 }
