@@ -6,8 +6,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// NewRouter builds and returns the gin engine. Do not call Run() here.
-func NewRouter( /* pass deps e.g. svc timestamp.Service */ ) *gin.Engine {
+// NewRouter sets up the Gin router with routes and middleware
+func NewRouter(handlerDependencies *HandlerDependencies) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger())
@@ -16,8 +16,10 @@ func NewRouter( /* pass deps e.g. svc timestamp.Service */ ) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"message": "pong"})
 	})
 
-	// inject dependencies into handler via closure or method receiver
-	r.POST("/upload", uploadHandler( /* deps */ ))
+	handler := handlerDependencies.uploadHandler()
+	r.POST("/upload", func(c *gin.Context) {
+		handler(c.Writer, c.Request)
+	})
 
 	return r
 }

@@ -1,0 +1,138 @@
+package api
+
+import (
+	"bytes"
+	"database/sql"
+	"errors"
+	"strings"
+	"testing"
+)
+
+type mockDB struct {
+	execFunc func(query string, args ...any) (sql.Result, error)
+}
+
+func (m *mockDB) Exec(query string, args ...any) (sql.Result, error) {
+	return m.execFunc(query, args...)
+}
+
+type mockResult struct {
+	affected int64
+	err      error
+}
+
+func (m *mockResult) LastInsertId() (int64, error) { return 0, nil }
+func (m *mockResult) RowsAffected() (int64, error) { return m.affected, m.err }
+
+func TestUploadCoreLogic(t *testing.T) {
+	// Helper to create UploadInput with a given file content and size
+	makeInput := func(content string, size int64) UploadInput {
+		return UploadInput{
+			File:                bytes.NewReader([]byte(content)),
+			OrigFilename:        "test.txt",
+			ContentType:         "text/plain",
+			FileSize:            size,
+			UserID:              "user1",
+			SubmitterIP:         "1.2.3.4",
+			SubmitterHostname:   "submitterhost",
+			SourceIP:            "5.6.7.8",
+			SourceHostname:      "sourcehost",
+			OriginalStoragePath: "/original/path",
+			UploadID:            "upload123",
+			MaxIntakeSize:       100,
+		}
+	}
+
+	t.Run("file too large", func(t *testing.T) {
+		input := makeInput("abc", 200)
+		res := uploadCoreLogic(&mockDB{}, input)
+		if res.Code != 413 || !strings.Contains(res.Status, "file too large") {
+			t.Errorf("expected file too large error, got %+v", res)
+		}
+	})
+
+	t.Run("read error", func(t *testing.T) {
+		badReader := &errReader{}
+		input := makeInput("", 10)
+		input.File = badReader
+		res := uploadCoreLogic(&mockDB{}, input)
+		if res.Code != 500 || !strings.Contains(res.Status, "read error") {
+			t.Errorf("expected read error, got %+v", res)
+		}
+	})
+
+	t.Run("seek error", func(t *testing.T) {
+		input := makeInput("abc", 3)
+		input.File = &seekErrReader{bytes.NewReader([]byte("abc"))}
+		res := uploadCoreLogic(&mockDB{}, input)
+		if res.Code != 500 || !strings.Contains(res.Status, "internal error") {
+			t.Errorf("expected seek error, got %+v", res)
+		}
+	})
+
+	t.Run("database error", func(t *testing.T) {
+		input := makeInput("abc", 3)
+		mdb := &mockDB{
+			execFunc: func(query string, args ...any) (sql.Result, error) {
+				return nil, errors.New("db fail")
+			},
+		}
+		res := uploadCoreLogic(mdb, input)
+		if res.Code != 500 || !strings.Contains(res.Status, "database error") {
+			t.Errorf("expected db error, got %+v", res)
+		}
+	})
+
+	t.Run("rows affected error", func(t *testing.T) {
+		input := makeInput("abc", 3)
+		mdb := &mockDB{
+			execFunc: func(query string, args ...any) (sql.Result, error) {
+				return &mockResult{affected: 0, err: errors.New("rows fail")}, nil
+			},
+		}
+		res := uploadCoreLogic(mdb, input)
+		if res.Code != 500 || !strings.Contains(res.Status, "database error") {
+			t.Errorf("expected rows error, got %+v", res)
+		}
+	})
+
+	t.Run("new file created", func(t *testing.T) {
+		input := makeInput("abc", 3)
+		mdb := &mockDB{
+			execFunc: func(query string, args ...any) (sql.Result, error) {
+				return &mockResult{affected: 1, err: nil}, nil
+			},
+		}
+		res := uploadCoreLogic(mdb, input)
+		if res.Code != 201 || res.Status != "created" || res.Checksum == "" {
+			t.Errorf("expected created, got %+v", res)
+		}
+	})
+
+	t.Run("file already exists", func(t *testing.T) {
+		input := makeInput("abc", 3)
+		mdb := &mockDB{
+			execFunc: func(query string, args ...any) (sql.Result, error) {
+				return &mockResult{affected: 0, err: nil}, nil
+			},
+		}
+		res := uploadCoreLogic(mdb, input)
+		if res.Code != 200 || res.Status != "exists" || res.Checksum == "" {
+			t.Errorf("expected exists, got %+v", res)
+		}
+	})
+}
+
+type errReader struct{}
+
+func (e *errReader) Read(p []byte) (int, error)                   { return 0, errors.New("read fail") }
+func (e *errReader) Seek(offset int64, whence int) (int64, error) { return 0, nil }
+
+// seekErrReader simulates a file that errors on Seek
+// wraps a bytes.Reader
+type seekErrReader struct{ *bytes.Reader }
+
+func (s *seekErrReader) Read(p []byte) (int, error) { return s.Reader.Read(p) }
+func (s *seekErrReader) Seek(offset int64, whence int) (int64, error) {
+	return 0, errors.New("seek fail")
+}

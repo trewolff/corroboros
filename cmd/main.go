@@ -3,57 +3,67 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"time"
 
 	"github.com/trewolff/corroboros/internal/api"
+	"github.com/trewolff/corroboros/internal/config"
 	"github.com/trewolff/corroboros/internal/database"
+
+	"github.com/caarlos0/env/v11"
 )
 
 func main() {
-	// wire your dependencies here (DB, services, config)
-	// svc := timestamp.NewService(...)
-
-	db, err := database.SetupDatabase()
+	var cfg config.Config
+	err := env.Parse(&cfg)
 	if err != nil {
-		log.Fatalf("failed to setup database: %v", err)
+		log.Fatalf("failed to parse env: %v", err)
 	}
 
-	_ = db // use db to create services
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
 
-	r := api.NewRouter( /* svc */ )
+	db, err := database.SetupDatabase(cfg)
+	if err != nil {
+		logger.Error("failed to setup database", "error", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	handlerDependencies := &api.HandlerDependencies{
+		DB:            db,
+		Logger:        logger,
+		MaxIntakeSize: cfg.MaxUploadSize,
+	}
+	r := api.NewRouter(handlerDependencies)
 
 	srv := &http.Server{
-		Addr:    ":" + getEnv("PORT", "8080"),
+		Addr:    ":" + cfg.ServerPort,
 		Handler: r,
 	}
 
 	// run server
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
+			logger.Error("listen", "error", err)
 		}
 	}()
-	log.Println("server started")
+	logger.Info("server started")
 
 	// graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
 	<-quit
-	log.Println("shutting down server...")
+	logger.Info("shutting down server...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("server forced to shutdown: %v", err)
+		logger.Error("server forced to shutdown", "error", err)
 	}
-}
-
-func getEnv(k, d string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return d
 }
