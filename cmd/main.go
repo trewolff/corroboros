@@ -34,7 +34,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	r := api.NewRouter(db)
+	handlerDependencies := &api.HandlerDependencies{
+		DB:            db,
+		MaxIntakeSize: cfg.MaxUploadSize,
+	}
+	r := api.NewRouter(handlerDependencies)
 
 	srv := &http.Server{
 		Addr:    ":" + getEnv("PORT", cfg.ServerPort),

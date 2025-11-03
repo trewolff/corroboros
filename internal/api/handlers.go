@@ -16,13 +16,13 @@ type UploadHandler interface {
 }
 
 type HandlerDependencies struct {
-	DB          *sql.DB
+	DB            *sql.DB
 	MaxIntakeSize int64
 }
 
-func uploadHandler(db *sql.DB, maxSize int64) http.HandlerFunc {
+func (h *HandlerDependencies) uploadHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, maxSize)
+		r.Body = http.MaxBytesReader(w, r.Body, h.MaxIntakeSize)
 		f, header, err := r.FormFile("file")
 		if err != nil {
 			http.Error(w, "missing file", http.StatusBadRequest)
@@ -68,7 +68,7 @@ func uploadHandler(db *sql.DB, maxSize int64) http.HandlerFunc {
 		uploadID := r.Header.Get("X-Upload-ID")
 
 		// Validate file size against max size
-		if fileSize > maxSize {
+		if fileSize > h.MaxIntakeSize {
 			http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
 			return
 		}
@@ -92,7 +92,7 @@ func uploadHandler(db *sql.DB, maxSize int64) http.HandlerFunc {
 		datePath := timestamp.Format("2006/01/02")
 		storagePath := "/storage/" + datePath + "/" + checksum[:2] + "/" + checksum[2:4] + "/" + checksum
 
-		sqlResult, err := db.Exec(`
+		sqlResult, err := h.DB.Exec(`
 			INSERT INTO files (
 				checksum, status, timestamp, original_filename, user_id, size, content_type, 
 				storage_path, submitter_ip, submitter_hostname, source_ip, source_hostname,
