@@ -36,6 +36,7 @@ func main() {
 
 	handlerDependencies := &api.HandlerDependencies{
 		DB:            db,
+		Logger:        logger,
 		MaxIntakeSize: cfg.MaxUploadSize,
 	}
 	r := api.NewRouter(handlerDependencies)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -17,6 +18,7 @@ type UploadHandler interface {
 
 type HandlerDependencies struct {
 	DB            *sql.DB
+	Logger        *slog.Logger
 	MaxIntakeSize int64
 }
 
