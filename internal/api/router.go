@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// NewRouter builds and returns the gin engine. Do not call Run() here.
+// NewRouter sets up the Gin router with routes and middleware
 func NewRouter(db *sql.DB) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()

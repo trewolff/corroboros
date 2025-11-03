@@ -30,7 +30,7 @@ func main() {
 	r := api.NewRouter(db)
 
 	srv := &http.Server{
-		Addr:    ":" + getEnv("PORT", "8080"),
+		Addr:    ":" + getEnv("PORT", cfg.ServerPort),
 		Handler: r,
 	}
 
