@@ -28,11 +28,12 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
-	db, err := database.SetupDatabase()
+	db, err := database.SetupDatabase(cfg)
 	if err != nil {
 		logger.Error("failed to setup database", "error", err)
 		os.Exit(1)
 	}
+	defer db.Close()
 
 	handlerDependencies := &api.HandlerDependencies{
 		DB:            db,
