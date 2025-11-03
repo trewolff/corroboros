@@ -41,7 +41,7 @@ func main() {
 	r := api.NewRouter(handlerDependencies)
 
 	srv := &http.Server{
-		Addr:    ":" + getEnv("PORT", cfg.ServerPort),
+		Addr:    ":" + cfg.ServerPort,
 		Handler: r,
 	}
 
@@ -64,11 +64,4 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Error("server forced to shutdown", "error", err)
 	}
-}
-
-func getEnv(k, d string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return d
 }
