@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,9 +23,15 @@ func main() {
 		log.Fatalf("failed to parse env: %v", err)
 	}
 
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
 	db, err := database.SetupDatabase()
 	if err != nil {
-		log.Fatalf("failed to setup database: %v", err)
+		logger.Error("failed to setup database", "error", err)
+		os.Exit(1)
 	}
 
 	r := api.NewRouter(db)
@@ -37,21 +44,21 @@ func main() {
 	// run server
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
+			logger.Error("listen", "error", err)
 		}
 	}()
-	log.Println("server started")
+	logger.Info("server started")
 
 	// graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
 	<-quit
-	log.Println("shutting down server...")
+	logger.Info("shutting down server...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("server forced to shutdown: %v", err)
+		logger.Error("server forced to shutdown", "error", err)
 	}
 }
 

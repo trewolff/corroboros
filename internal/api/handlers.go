@@ -11,6 +11,15 @@ import (
 	_ "github.com/lib/pq"
 )
 
+type UploadHandler interface {
+	ServeHTTP(w http.ResponseWriter, r *http.Request)
+}
+
+type HandlerDependencies struct {
+	DB          *sql.DB
+	MaxIntakeSize int64
+}
+
 func uploadHandler(db *sql.DB, maxSize int64) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxSize)
