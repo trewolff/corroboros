@@ -9,12 +9,18 @@ import (
 	"time"
 
 	"github.com/trewolff/corroboros/internal/api"
+	"github.com/trewolff/corroboros/internal/config"
 	"github.com/trewolff/corroboros/internal/database"
+
+	"github.com/caarlos0/env/v11"
 )
 
 func main() {
-	// wire your dependencies here (DB, services, config)
-	// svc := timestamp.NewService(...)
+	var cfg config.Config
+	err := env.Parse(&cfg)
+	if err != nil {
+		log.Fatalf("failed to parse env: %v", err)
+	}
 
 	db, err := database.SetupDatabase()
 	if err != nil {

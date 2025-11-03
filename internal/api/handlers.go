@@ -90,9 +90,9 @@ func uploadHandler(db *sql.DB, maxSize int64) http.HandlerFunc {
 				original_storage_path, upload_id
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 			ON CONFLICT (checksum) DO NOTHING
-		`, checksum, "stored", timestamp, origFilename, userID, fileSize, contentType, 
-		   storagePath, submitterIP, submitterHostname, sourceIP, sourceHostname,
-		   originalStoragePath, uploadID)
+		`, checksum, "stored", timestamp, origFilename, userID, fileSize, contentType,
+			storagePath, submitterIP, submitterHostname, sourceIP, sourceHostname,
+			originalStoragePath, uploadID)
 
 		if err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
