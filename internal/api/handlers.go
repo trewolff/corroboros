@@ -11,20 +11,23 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/trewolff/corroboros/internal/database"
 )
 
 type UploadHandler interface {
 	ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
-type DB interface {
-	Exec(query string, args ...any) (sql.Result, error)
-}
-
 type HandlerDependencies struct {
 	DB            DB
 	Logger        *slog.Logger
 	MaxIntakeSize int64
+}
+
+// DB is the minimal database interface used by the handlers so tests and
+// other implementations can provide a mock.
+type DB interface {
+	CreateRecords(record database.Record) (sql.Result, error)
 }
 
 // UploadResult holds the result of a file upload operation
@@ -52,7 +55,7 @@ type UploadInput struct {
 }
 
 // uploadCoreLogic performs the core upload logic, returns UploadResult
-func uploadCoreLogic(db DB, input UploadInput) UploadResult {
+func (h *HandlerDependencies) uploadCoreLogic(input UploadInput) UploadResult {
 	if input.FileSize > input.MaxIntakeSize {
 		return UploadResult{"", "file too large", http.StatusRequestEntityTooLarge, nil}
 	}
@@ -68,16 +71,25 @@ func uploadCoreLogic(db DB, input UploadInput) UploadResult {
 	datePath := timestamp.Format("2006/01/02")
 	storagePath := "/storage/" + datePath + "/" + checksum[:2] + "/" + checksum[2:4] + "/" + checksum
 	fmt.Println("input", input)
-	sqlResult, err := db.Exec(`
-	       INSERT INTO files (
-		       checksum, status, timestamp, original_filename, user_id, size, content_type, 
-		       storage_path, submitter_ip, submitter_hostname, source_ip, source_hostname,
-		       original_storage_path, upload_id
-	       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-	       ON CONFLICT (checksum) DO NOTHING
-       `, checksum, "stored", timestamp, input.OrigFilename, input.UserID, input.FileSize, input.ContentType,
-		storagePath, input.SubmitterIP, input.SubmitterHostname, input.SourceIP, input.SourceHostname,
-		input.OriginalStoragePath, input.UploadID)
+	record := database.Record{
+		Checksum:            checksum,
+		Status:              "stored",
+		Timestamp:           timestamp,
+		OriginalFilename:    input.OrigFilename,
+		UserID:              input.UserID,
+		FileSize:            input.FileSize,
+		ContentType:         input.ContentType,
+		StoragePath:         storagePath,
+		SubmitterIP:         input.SubmitterIP,
+		SubmitterHostname:   input.SubmitterHostname,
+		SourceIP:            input.SourceIP,
+		SourceHostname:      input.SourceHostname,
+		OriginalStoragePath: input.OriginalStoragePath,
+		UploadID:            input.UploadID,
+	}
+	slog.Info("storing record", "record", record)
+	//records := []database.Record{record}
+	sqlResult, err := h.DB.CreateRecords(record)
 	if err != nil {
 		return UploadResult{"", "database error", http.StatusInternalServerError, err}
 	}
@@ -143,7 +155,7 @@ func (h *HandlerDependencies) uploadHandler() http.HandlerFunc {
 			UploadID:            uploadID,
 			MaxIntakeSize:       h.MaxIntakeSize,
 		}
-		result := uploadCoreLogic(h.DB, input)
+		result := h.uploadCoreLogic(input)
 		if result.Err != nil {
 			http.Error(w, result.Status, result.Code)
 			return

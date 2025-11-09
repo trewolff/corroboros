@@ -6,14 +6,19 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/trewolff/corroboros/internal/database"
 )
 
 type mockDB struct {
-	execFunc func(query string, args ...any) (sql.Result, error)
+	createFunc func(rec database.Record) (sql.Result, error)
 }
 
-func (m *mockDB) Exec(query string, args ...any) (sql.Result, error) {
-	return m.execFunc(query, args...)
+func (m *mockDB) CreateRecords(rec database.Record) (sql.Result, error) {
+	if m.createFunc != nil {
+		return m.createFunc(rec)
+	}
+	return nil, nil
 }
 
 type mockResult struct {
@@ -45,7 +50,8 @@ func TestUploadCoreLogic(t *testing.T) {
 
 	t.Run("file too large", func(t *testing.T) {
 		input := makeInput("abc", 200)
-		res := uploadCoreLogic(&mockDB{}, input)
+		hd := &HandlerDependencies{DB: &mockDB{}, Logger: nil, MaxIntakeSize: 100}
+		res := hd.uploadCoreLogic(input)
 		if res.Code != 413 || !strings.Contains(res.Status, "file too large") {
 			t.Errorf("expected file too large error, got %+v", res)
 		}
@@ -55,7 +61,8 @@ func TestUploadCoreLogic(t *testing.T) {
 		badReader := &errReader{}
 		input := makeInput("", 10)
 		input.File = badReader
-		res := uploadCoreLogic(&mockDB{}, input)
+		hd := &HandlerDependencies{DB: &mockDB{}, Logger: nil, MaxIntakeSize: 100}
+		res := hd.uploadCoreLogic(input)
 		if res.Code != 500 || !strings.Contains(res.Status, "read error") {
 			t.Errorf("expected read error, got %+v", res)
 		}
@@ -64,7 +71,8 @@ func TestUploadCoreLogic(t *testing.T) {
 	t.Run("seek error", func(t *testing.T) {
 		input := makeInput("abc", 3)
 		input.File = &seekErrReader{bytes.NewReader([]byte("abc"))}
-		res := uploadCoreLogic(&mockDB{}, input)
+		hd := &HandlerDependencies{DB: &mockDB{}, Logger: nil, MaxIntakeSize: 100}
+		res := hd.uploadCoreLogic(input)
 		if res.Code != 500 || !strings.Contains(res.Status, "internal error") {
 			t.Errorf("expected seek error, got %+v", res)
 		}
@@ -73,11 +81,12 @@ func TestUploadCoreLogic(t *testing.T) {
 	t.Run("database error", func(t *testing.T) {
 		input := makeInput("abc", 3)
 		mdb := &mockDB{
-			execFunc: func(query string, args ...any) (sql.Result, error) {
+			createFunc: func(rec database.Record) (sql.Result, error) {
 				return nil, errors.New("db fail")
 			},
 		}
-		res := uploadCoreLogic(mdb, input)
+		hd := &HandlerDependencies{DB: mdb, Logger: nil, MaxIntakeSize: 100}
+		res := hd.uploadCoreLogic(input)
 		if res.Code != 500 || !strings.Contains(res.Status, "database error") {
 			t.Errorf("expected db error, got %+v", res)
 		}
@@ -86,11 +95,12 @@ func TestUploadCoreLogic(t *testing.T) {
 	t.Run("rows affected error", func(t *testing.T) {
 		input := makeInput("abc", 3)
 		mdb := &mockDB{
-			execFunc: func(query string, args ...any) (sql.Result, error) {
+			createFunc: func(rec database.Record) (sql.Result, error) {
 				return &mockResult{affected: 0, err: errors.New("rows fail")}, nil
 			},
 		}
-		res := uploadCoreLogic(mdb, input)
+		hd := &HandlerDependencies{DB: mdb, Logger: nil, MaxIntakeSize: 100}
+		res := hd.uploadCoreLogic(input)
 		if res.Code != 500 || !strings.Contains(res.Status, "database error") {
 			t.Errorf("expected rows error, got %+v", res)
 		}
@@ -99,11 +109,12 @@ func TestUploadCoreLogic(t *testing.T) {
 	t.Run("new file created", func(t *testing.T) {
 		input := makeInput("abc", 3)
 		mdb := &mockDB{
-			execFunc: func(query string, args ...any) (sql.Result, error) {
+			createFunc: func(rec database.Record) (sql.Result, error) {
 				return &mockResult{affected: 1, err: nil}, nil
 			},
 		}
-		res := uploadCoreLogic(mdb, input)
+		hd := &HandlerDependencies{DB: mdb, Logger: nil, MaxIntakeSize: 100}
+		res := hd.uploadCoreLogic(input)
 		if res.Code != 201 || res.Status != "created" || res.Checksum == "" {
 			t.Errorf("expected created, got %+v", res)
 		}
@@ -112,11 +123,12 @@ func TestUploadCoreLogic(t *testing.T) {
 	t.Run("file already exists", func(t *testing.T) {
 		input := makeInput("abc", 3)
 		mdb := &mockDB{
-			execFunc: func(query string, args ...any) (sql.Result, error) {
+			createFunc: func(rec database.Record) (sql.Result, error) {
 				return &mockResult{affected: 0, err: nil}, nil
 			},
 		}
-		res := uploadCoreLogic(mdb, input)
+		hd := &HandlerDependencies{DB: mdb, Logger: nil, MaxIntakeSize: 100}
+		res := hd.uploadCoreLogic(input)
 		if res.Code != 200 || res.Status != "exists" || res.Checksum == "" {
 			t.Errorf("expected exists, got %+v", res)
 		}
