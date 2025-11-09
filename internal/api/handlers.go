@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -66,6 +67,7 @@ func uploadCoreLogic(db DB, input UploadInput) UploadResult {
 	timestamp := time.Now()
 	datePath := timestamp.Format("2006/01/02")
 	storagePath := "/storage/" + datePath + "/" + checksum[:2] + "/" + checksum[2:4] + "/" + checksum
+	fmt.Println("input", input)
 	sqlResult, err := db.Exec(`
 	       INSERT INTO files (
 		       checksum, status, timestamp, original_filename, user_id, size, content_type, 
