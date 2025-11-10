@@ -11,12 +11,30 @@ import (
 )
 
 type mockDB struct {
-	createFunc func(rec database.Record) (sql.Result, error)
+	createFunc      func(rec database.Record) (sql.Result, error)
+	getFunc         func() ([]database.Record, error)
+	getByUserIDFunc func(userID string) ([]database.Record, error)
 }
 
+// CreateRecords mocks the CreateRecords method
 func (m *mockDB) CreateRecords(rec database.Record) (sql.Result, error) {
 	if m.createFunc != nil {
 		return m.createFunc(rec)
+	}
+	return nil, nil
+}
+
+// GetRecords mocks the GetRecords method
+func (m *mockDB) GetRecords() ([]database.Record, error) {
+	if m.getFunc != nil {
+		return m.getFunc()
+	}
+	return nil, nil
+}
+
+func (m *mockDB) GetRecordsByUserID(userID string) ([]database.Record, error) {
+	if m.getFunc != nil {
+		return m.getFunc()
 	}
 	return nil, nil
 }

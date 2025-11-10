@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -28,6 +29,8 @@ type HandlerDependencies struct {
 // other implementations can provide a mock.
 type DB interface {
 	CreateRecords(record database.Record) (sql.Result, error)
+	GetRecords() ([]database.Record, error)
+	GetRecordsByUserID(userID string) ([]database.Record, error)
 }
 
 // UploadResult holds the result of a file upload operation
@@ -162,5 +165,34 @@ func (h *HandlerDependencies) uploadHandler() http.HandlerFunc {
 		}
 		w.WriteHeader(result.Code)
 		w.Write([]byte(result.Checksum))
+	}
+}
+
+// getRecordsHandler handles the /records endpoint
+func (h *HandlerDependencies) getRecordsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// TODO: implement pagination, filtering, etc.
+		// Implement authentication/authorization as needed
+		apiKey := r.Header.Get("X-API-Key")
+		if apiKey != "expected_api_key" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		userID, err := getUserIDFromAPIKey(apiKey)
+		if err != nil || userID.String() == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		records, err := h.DB.GetRecordsByUserID(userID.String())
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		// Serialize records to JSON and write to response
+		err = json.NewEncoder(w).Encode(records)
+		if err != nil {
+			http.Error(w, "encoding error", http.StatusInternalServerError)
+			return
+		}
 	}
 }

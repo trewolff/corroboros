@@ -27,6 +27,7 @@ type Database struct {
 	Connection *sql.DB
 }
 
+// NewDatabase initializes a new Database instance
 func NewDatabase(connStr string) (*Database, error) {
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
@@ -35,6 +36,7 @@ func NewDatabase(connStr string) (*Database, error) {
 	return &Database{Connection: db}, nil
 }
 
+// GetRecords retrieves all records from the database
 func (d *Database) GetRecords() ([]Record, error) {
 	rows, err := d.Connection.Query("SELECT * FROM records")
 	if err != nil {
@@ -69,6 +71,7 @@ func (d *Database) GetRecords() ([]Record, error) {
 	return records, nil
 }
 
+// CreateRecords inserts a new record into the database
 func (d *Database) CreateRecords(record Record) (sql.Result, error) {
 	sqlResult, err := d.Connection.Exec(`
 	       INSERT INTO files (
@@ -84,6 +87,41 @@ func (d *Database) CreateRecords(record Record) (sql.Result, error) {
 	return sqlResult, err
 }
 
+// Close closes the database connection
 func (d *Database) Close() error {
 	return d.Connection.Close()
+}
+
+func (d *Database) GetRecordsByUserID(userID string) ([]Record, error) {
+	rows, err := d.Connection.Query("SELECT * FROM records WHERE user_id = $1", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []Record
+	for rows.Next() {
+		var record Record
+		if err := rows.Scan(
+			&record.ID,
+			&record.Checksum,
+			&record.Status,
+			&record.Timestamp,
+			&record.OriginalFilename,
+			&record.UserID,
+			&record.FileSize,
+			&record.ContentType,
+			&record.StoragePath,
+			&record.SubmitterIP,
+			&record.SubmitterHostname,
+			&record.SourceIP,
+			&record.SourceHostname,
+			&record.OriginalStoragePath,
+			&record.UploadID,
+		); err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+	return records, nil
 }
