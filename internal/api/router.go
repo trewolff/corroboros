@@ -16,9 +16,11 @@ func NewRouter(handlerDependencies *HandlerDependencies) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"message": "pong"})
 	})
 
-	handler := handlerDependencies.uploadHandler()
 	r.POST("/upload", func(c *gin.Context) {
-		handler(c.Writer, c.Request)
+		handlerDependencies.uploadHandler()(c.Writer, c.Request)
+	})
+	r.GET("/records", func(c *gin.Context) {
+		handlerDependencies.getRecordsHandler()(c.Writer, c.Request)
 	})
 
 	return r

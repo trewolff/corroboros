@@ -28,7 +28,7 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
-	db, err := database.SetupDatabase(cfg)
+	db, err := database.NewDatabase(cfg.DBConnectionString)
 	if err != nil {
 		logger.Error("failed to setup database", "error", err)
 		os.Exit(1)
