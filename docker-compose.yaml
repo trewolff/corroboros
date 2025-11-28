@@ -1,33 +1,33 @@
 version: '3.8'
 
 services:
-	app:
-		build:
-			context: .
-			dockerfile: dockerfile
-		image: corroboros:latest
-		ports:
-			- "8080:8080"
-		environment:
-			- SERVER_PORT=8080
-			- DB_CONNECTION_STRING=postgres://corroboros:corroboros_pass@db:5432/corroboros_db?sslmode=disable
-			- MAX_UPLOAD_SIZE=10485760
-		depends_on:
-			- db
-		restart: unless-stopped
+  app:
+    build:
+      context: .
+      dockerfile: dockerfile
+    image: corroboros:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_PORT=8080
+      - DB_CONNECTION_STRING=postgres://corroboros:corroboros_pass@db:5432/corroboros_db?sslmode=disable
+      - MAX_UPLOAD_SIZE=10485760
+    depends_on:
+      - db
+    restart: unless-stopped
 
-	db:
-		image: postgres:15-alpine
-		environment:
-			POSTGRES_USER: corroboros
-			POSTGRES_PASSWORD: corroboros_pass
-			POSTGRES_DB: corroboros_db
-		volumes:
-			- db-data:/var/lib/postgresql/data
-		ports:
-			- "5432:5432"
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: corroboros
+      POSTGRES_PASSWORD: corroboros_pass
+      POSTGRES_DB: corroboros_db
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
 
 volumes:
-	db-data:
-		driver: local
+  db-data:
+    driver: local
 
